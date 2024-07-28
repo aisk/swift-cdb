@@ -18,7 +18,7 @@ class CDBWriter {
     private var db: OpaquePointer?
 
     init(name: String) throws {
-        var raw_options = cdb_host_options;
+        var raw_options = cdb_host_options
         let ops = withUnsafeMutablePointer(to: &raw_options) {
             UnsafeMutablePointer($0)
         }
@@ -38,6 +38,55 @@ class CDBWriter {
             throw CDBError(errno: Int(res))
         }
 
+    }
+
+    func close() throws {
+        let res = cdb_close(db)
+        if res != 0 {
+            throw CDBError(errno: Int(res))
+        }
+    }
+}
+
+class CDBReader {
+    private var db: OpaquePointer?
+
+    init(name: String) throws {
+        var raw_options = cdb_host_options
+        let ops = withUnsafeMutablePointer(to: &raw_options) {
+            UnsafeMutablePointer($0)
+        }
+
+        let res = cdb_open(&self.db, ops, 0, name)
+        if res != 0 {
+            throw CDBError(errno: Int(res))
+        }
+    }
+
+    func get(key: String) throws -> String? {
+        var key = cdb_buffer_t(length: UInt64(key.utf8CString.count), buffer: makeCString(from: key))
+        var value_info = cdb_file_pos_t(position: 0, length: 0)
+
+        var res = cdb_get(self.db, &key, &value_info)
+        if res == 0 {
+            return nil
+        }
+        if res != 1 {
+            throw CDBError(errno: Int(res))
+        }
+
+        res = cdb_seek(self.db, value_info.position)
+        if res != 0 {
+            throw CDBError(errno: Int(res))
+        }
+        let buffer: UnsafeMutablePointer<Int8> = UnsafeMutablePointer<Int8>.allocate(capacity: Int(value_info.length))
+        res = cdb_read(self.db, buffer, value_info.length)
+        if res != 0 {
+            throw CDBError(errno: Int(res))
+        }
+        let value = String(cString: buffer)
+
+        return value
     }
 
     func close() throws {
