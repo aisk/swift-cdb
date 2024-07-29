@@ -44,11 +44,11 @@ class CDB {
         }
     }
 
-    func get(key: String) throws -> String? {
+    func get(key: String, index: UInt64=0) throws -> String? {
         var key = cdb_buffer_t(length: UInt64(key.utf8CString.count), buffer: makeCString(from: key))
         var value_info = cdb_file_pos_t(position: 0, length: 0)
 
-        var res = cdb_get(self.db, &key, &value_info)
+        var res = cdb_lookup(self.db, &key, &value_info, index)
         if res == 0 {
             return nil
         }
