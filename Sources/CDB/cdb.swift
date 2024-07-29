@@ -14,16 +14,21 @@ private func makeCString(from str: String) -> UnsafeMutablePointer<Int8> {
     return result.baseAddress!
 }
 
-class CDBWriter {
+enum Mode: Int32 {
+    case read = 0
+    case write = 1
+}
+
+class CDB {
     private var db: OpaquePointer?
 
-    init(name: String) throws {
+    init(filename: String, mode: Mode) throws {
         var raw_options = cdb_host_options
         let ops = withUnsafeMutablePointer(to: &raw_options) {
             UnsafeMutablePointer($0)
         }
 
-        let res = cdb_open(&self.db, ops, 1, name)
+        let res = cdb_open(&self.db, ops, mode.rawValue, filename)
         if res != 0 {
             throw CDBError(errno: Int(res))
         }
@@ -34,30 +39,6 @@ class CDBWriter {
         var value = cdb_buffer_t(length: UInt64(value.utf8CString.count), buffer: makeCString(from: value))
 
         let res = cdb_add(db, &key, &value)
-        if res != 0 {
-            throw CDBError(errno: Int(res))
-        }
-
-    }
-
-    func close() throws {
-        let res = cdb_close(db)
-        if res != 0 {
-            throw CDBError(errno: Int(res))
-        }
-    }
-}
-
-class CDBReader {
-    private var db: OpaquePointer?
-
-    init(name: String) throws {
-        var raw_options = cdb_host_options
-        let ops = withUnsafeMutablePointer(to: &raw_options) {
-            UnsafeMutablePointer($0)
-        }
-
-        let res = cdb_open(&self.db, ops, 0, name)
         if res != 0 {
             throw CDBError(errno: Int(res))
         }
