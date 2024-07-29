@@ -70,6 +70,18 @@ class CDB {
         return value
     }
 
+    func count(key: String) throws -> UInt64 {
+        var key = cdb_buffer_t(length: UInt64(key.utf8CString.count), buffer: makeCString(from: key))
+        var result: UInt64 = 0
+
+        let res = cdb_count(self.db, &key, &result)
+        if res != 0 {
+            throw CDBError(errno: Int(res))
+        }
+
+        return result
+    }
+
     func close() throws {
         let res = cdb_close(db)
         if res != 0 {

@@ -17,8 +17,12 @@ final class CDBTests: XCTestCase {
         let db2 = try CDB(filename: "example.cdb", mode: .read)
         let value1 = try db2.get(key: "foo")
         XCTAssertEqual(value1, Optional("bar"))
+        let count1 = try db2.count(key: "foo")
+        XCTAssertEqual(count1, 1)
         let value2 = try db2.get(key: "not_exist")
         XCTAssertEqual(value2, nil)
+        let count2 = try db2.count(key: "not_exist")
+        XCTAssertEqual(count2, 0)
         try db2.close()
     }
 }
