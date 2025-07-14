@@ -23,6 +23,13 @@ final class CDBTests: XCTestCase {
         XCTAssertEqual(value2, nil)
         let count2 = try db2.count(key: "not_exist")
         XCTAssertEqual(count2, 0)
+
+        var items: [String: String] = [:]
+        for (key, value) in db2 {
+            items[key] = value
+        }
+        XCTAssertEqual(items, ["foo": "bar", "hello": "world"])
+
         try db2.close()
     }
 }

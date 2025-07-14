@@ -7,13 +7,6 @@ struct CDBError: Error {
     let errno: Int
 }
 
-private func makeCString(from str: String) -> UnsafeMutablePointer<Int8> {
-    let count = str.utf8CString.count 
-    let result: UnsafeMutableBufferPointer<Int8> = UnsafeMutableBufferPointer<Int8>.allocate(capacity: count)
-    _ = result.initialize(from: str.utf8CString)
-    return result.baseAddress!
-}
-
 enum Mode: Int32 {
     case read = 0
     case write = 1
@@ -35,51 +28,48 @@ class CDB {
     }
 
     func add(key: String, value: String) throws {
-        var key = cdb_buffer_t(length: UInt64(key.utf8CString.count), buffer: makeCString(from: key))
-        var value = cdb_buffer_t(length: UInt64(value.utf8CString.count), buffer: makeCString(from: value))
+        try key.withCString { cKey in
+            try value.withCString { cValue in
+                var keyBuffer = cdb_buffer_t(length: UInt64(key.utf8.count), buffer: UnsafeMutablePointer(mutating: cKey))
+                var valueBuffer = cdb_buffer_t(length: UInt64(value.utf8.count), buffer: UnsafeMutablePointer(mutating: cValue))
 
-        let res = cdb_add(db, &key, &value)
-        if res != 0 {
-            throw CDBError(errno: Int(res))
+                let res = cdb_add(db, &keyBuffer, &valueBuffer)
+                if res != 0 {
+                    throw CDBError(errno: Int(res))
+                }
+            }
         }
     }
 
     func get(key: String, index: UInt64=0) throws -> String? {
-        var key = cdb_buffer_t(length: UInt64(key.utf8CString.count), buffer: makeCString(from: key))
-        var value_info = cdb_file_pos_t(position: 0, length: 0)
+        return try key.withCString { cKey in
+            var keyBuffer = cdb_buffer_t(length: UInt64(key.utf8.count), buffer: UnsafeMutablePointer(mutating: cKey))
+            var value_info = cdb_file_pos_t(position: 0, length: 0)
 
-        var res = cdb_lookup(self.db, &key, &value_info, index)
-        if res == 0 {
-            return nil
-        }
-        if res != 1 {
-            throw CDBError(errno: Int(res))
-        }
+            let res = cdb_lookup(self.db, &keyBuffer, &value_info, index)
+            if res == 0 {
+                return nil
+            }
+            if res != 1 {
+                throw CDBError(errno: Int(res))
+            }
 
-        res = cdb_seek(self.db, value_info.position)
-        if res != 0 {
-            throw CDBError(errno: Int(res))
+            return try read(at: value_info)
         }
-        let buffer: UnsafeMutablePointer<Int8> = UnsafeMutablePointer<Int8>.allocate(capacity: Int(value_info.length))
-        res = cdb_read(self.db, buffer, value_info.length)
-        if res != 0 {
-            throw CDBError(errno: Int(res))
-        }
-        let value = String(cString: buffer)
-
-        return value
     }
 
     func count(key: String) throws -> UInt64 {
-        var key = cdb_buffer_t(length: UInt64(key.utf8CString.count), buffer: makeCString(from: key))
-        var result: UInt64 = 0
+        return try key.withCString { cKey in
+            var keyBuffer = cdb_buffer_t(length: UInt64(key.utf8.count), buffer: UnsafeMutablePointer(mutating: cKey))
+            var result: UInt64 = 0
 
-        let res = cdb_count(self.db, &key, &result)
-        if res != 0 {
-            throw CDBError(errno: Int(res))
+            let res = cdb_count(self.db, &keyBuffer, &result)
+            if res != 0 {
+                throw CDBError(errno: Int(res))
+            }
+
+            return result
         }
-
-        return result
     }
 
     func close() throws {
@@ -87,5 +77,77 @@ class CDB {
         if res != 0 {
             throw CDBError(errno: Int(res))
         }
+    }
+
+    fileprivate func read(at pos: cdb_file_pos_t) throws -> String {
+        let res = cdb_seek(self.db, pos.position)
+        if res != 0 {
+            throw CDBError(errno: Int(res))
+        }
+        let buffer: UnsafeMutablePointer<Int8> = UnsafeMutablePointer<Int8>.allocate(capacity: Int(pos.length) + 1)
+        defer { buffer.deallocate() }
+        let read_res = cdb_read(self.db, buffer, pos.length)
+        if read_res != 0 {
+            throw CDBError(errno: Int(read_res))
+        }
+        buffer[Int(pos.length)] = 0 // Null terminate
+        return String(cString: buffer)
+    }
+}
+
+public struct CDBIterator: IteratorProtocol {
+    public typealias Element = (key: String, value: String)
+
+    private var items: [Element]
+    private var currentIndex = 0
+
+    init(items: [Element]) {
+        self.items = items
+    }
+
+    public mutating func next() -> Element? {
+        if currentIndex < items.count {
+            let item = items[currentIndex]
+            currentIndex += 1
+            return item
+        }
+        return nil
+    }
+}
+
+extension CDB: Sequence {
+    public func makeIterator() -> CDBIterator {
+        let helper = IteratorHelper(cdb: self)
+        let helperPtr = Unmanaged.passUnretained(helper).toOpaque()
+
+        let callback: cdb_callback = { cdb, key, value, param in
+            let helper = Unmanaged<IteratorHelper>.fromOpaque(param!).takeUnretainedValue()
+            do {
+                try helper.append(keyPos: key!.pointee, valuePos: value!.pointee)
+                return 0
+            } catch {
+                return -1
+            }
+        }
+
+        cdb_foreach(self.db, callback, helperPtr)
+
+        return CDBIterator(items: helper.items)
+    }
+}
+
+private class IteratorHelper {
+    var items: [(key: String, value: String)] = []
+    private weak var cdb: CDB?
+
+    init(cdb: CDB) {
+        self.cdb = cdb
+    }
+
+    func append(keyPos: cdb_file_pos_t, valuePos: cdb_file_pos_t) throws {
+        guard let cdb = cdb else { return }
+        let key = try cdb.read(at: keyPos)
+        let value = try cdb.read(at: valuePos)
+        items.append((key: key, value: value))
     }
 }
