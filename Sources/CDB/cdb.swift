@@ -3,8 +3,12 @@
 
 import cdbc
 
-struct CDBError: Error {
+struct CDBError: Error, LocalizedError {
     let errno: Int
+
+    var errorDescription: String? {
+        return "CDB operation failed with error code: \(errno)"
+    }
 }
 
 enum Mode: Int32 {
