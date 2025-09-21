@@ -14,6 +14,7 @@ enum Mode: Int32 {
 
 class CDB {
     private var db: OpaquePointer?
+    private var isClosed = false
 
     init(filename: String, mode: Mode) throws {
         var raw_options = cdb_host_options
@@ -73,10 +74,12 @@ class CDB {
     }
 
     func close() throws {
+        guard !isClosed else { return }
         let res = cdb_close(db)
         if res != 0 {
             throw CDBError(errno: Int(res))
         }
+        isClosed = true
     }
 
     fileprivate func read(at pos: cdb_file_pos_t) throws -> String {
@@ -92,6 +95,10 @@ class CDB {
         }
         buffer[Int(pos.length)] = 0 // Null terminate
         return String(cString: buffer)
+    }
+
+    deinit {
+        try? close()
     }
 }
 
