@@ -13,9 +13,10 @@ extension cdb_buffer_t {
 
 struct CDBError: Error {
     let errno: Int
+    let operation: String
 
     var localizedDescription: String {
-        return "CDB operation failed with error code: \(errno)"
+        return "CDB \(operation) failed with error code: \(errno)"
     }
 }
 
@@ -36,13 +37,13 @@ class CDB {
 
         let res = cdb_open(&self.db, ops, mode.rawValue, filename)
         if res != 0 {
-            throw CDBError(errno: Int(res))
+            throw CDBError(errno: Int(res), operation: "open")
         }
     }
 
     func add(key: String, value: String) throws {
         guard !isClosed else {
-            throw CDBError(errno: -1)
+            throw CDBError(errno: -1, operation: "add")
         }
 
         try key.withCString { cKey in
@@ -52,7 +53,7 @@ class CDB {
 
                 let res = cdb_add(db, &keyBuffer, &valueBuffer)
                 if res != 0 {
-                    throw CDBError(errno: Int(res))
+                    throw CDBError(errno: Int(res), operation: "add")
                 }
             }
         }
@@ -60,7 +61,7 @@ class CDB {
 
     func get(key: String, at index: UInt64=0) throws -> String? {
         guard !isClosed else {
-            throw CDBError(errno: -1)
+            throw CDBError(errno: -1, operation: "get")
         }
 
         return try key.withCString { cKey in
@@ -72,7 +73,7 @@ class CDB {
                 return nil
             }
             if res != 1 {
-                throw CDBError(errno: Int(res))
+                throw CDBError(errno: Int(res), operation: "lookup")
             }
 
             return try read(at: value_info)
@@ -81,7 +82,7 @@ class CDB {
 
     func count(key: String) throws -> UInt64 {
         guard !isClosed else {
-            throw CDBError(errno: -1)
+            throw CDBError(errno: -1, operation: "count")
         }
 
         return try key.withCString { cKey in
@@ -90,7 +91,7 @@ class CDB {
 
             let res = cdb_count(self.db, &keyBuffer, &result)
             if res != 0 {
-                throw CDBError(errno: Int(res))
+                throw CDBError(errno: Int(res), operation: "count")
             }
 
             return result
@@ -101,25 +102,25 @@ class CDB {
         guard !isClosed else { return }
         let res = cdb_close(db)
         if res != 0 {
-            throw CDBError(errno: Int(res))
+            throw CDBError(errno: Int(res), operation: "close")
         }
         isClosed = true
     }
 
     fileprivate func read(at pos: cdb_file_pos_t) throws -> String {
         guard !isClosed else {
-            throw CDBError(errno: -1)
+            throw CDBError(errno: -1, operation: "read")
         }
 
         let res = cdb_seek(self.db, pos.position)
         if res != 0 {
-            throw CDBError(errno: Int(res))
+            throw CDBError(errno: Int(res), operation: "seek")
         }
         let buffer: UnsafeMutablePointer<Int8> = UnsafeMutablePointer<Int8>.allocate(capacity: Int(pos.length) + 1)
         defer { buffer.deallocate() }
         let read_res = cdb_read(self.db, buffer, pos.length)
         if read_res != 0 {
-            throw CDBError(errno: Int(read_res))
+            throw CDBError(errno: Int(read_res), operation: "read")
         }
         buffer[Int(pos.length)] = 0 // Null terminate
         return String(cString: buffer)
