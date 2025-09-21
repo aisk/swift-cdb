@@ -29,6 +29,10 @@ class CDB {
     }
 
     func add(key: String, value: String) throws {
+        guard !isClosed else {
+            throw CDBError(errno: -1)
+        }
+
         try key.withCString { cKey in
             try value.withCString { cValue in
                 var keyBuffer = cdb_buffer_t(length: UInt64(key.utf8.count), buffer: UnsafeMutablePointer(mutating: cKey))
@@ -43,6 +47,10 @@ class CDB {
     }
 
     func get(key: String, index: UInt64=0) throws -> String? {
+        guard !isClosed else {
+            throw CDBError(errno: -1)
+        }
+
         return try key.withCString { cKey in
             var keyBuffer = cdb_buffer_t(length: UInt64(key.utf8.count), buffer: UnsafeMutablePointer(mutating: cKey))
             var value_info = cdb_file_pos_t(position: 0, length: 0)
@@ -60,6 +68,10 @@ class CDB {
     }
 
     func count(key: String) throws -> UInt64 {
+        guard !isClosed else {
+            throw CDBError(errno: -1)
+        }
+
         return try key.withCString { cKey in
             var keyBuffer = cdb_buffer_t(length: UInt64(key.utf8.count), buffer: UnsafeMutablePointer(mutating: cKey))
             var result: UInt64 = 0
@@ -83,6 +95,10 @@ class CDB {
     }
 
     fileprivate func read(at pos: cdb_file_pos_t) throws -> String {
+        guard !isClosed else {
+            throw CDBError(errno: -1)
+        }
+
         let res = cdb_seek(self.db, pos.position)
         if res != 0 {
             throw CDBError(errno: Int(res))
@@ -124,6 +140,10 @@ public struct CDBIterator: IteratorProtocol {
 
 extension CDB: Sequence {
     public func makeIterator() -> CDBIterator {
+        guard !isClosed else {
+            return CDBIterator(items: [])
+        }
+
         let helper = IteratorHelper(cdb: self)
         let helperPtr = Unmanaged.passUnretained(helper).toOpaque()
 
