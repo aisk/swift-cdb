@@ -129,6 +129,10 @@ class CDB {
     deinit {
         try? close()
     }
+
+    subscript(key: String) -> String? {
+        return try? get(key: key)
+    }
 }
 
 public struct CDBIterator: IteratorProtocol {

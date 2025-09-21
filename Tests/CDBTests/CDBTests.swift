@@ -30,6 +30,10 @@ final class CDBTests: XCTestCase {
         }
         XCTAssertEqual(items, ["foo": "bar", "hello": "world"])
 
+        XCTAssertEqual(db2["foo"], "bar")
+        XCTAssertEqual(db2["hello"], "world")
+        XCTAssertNil(db2["nonexistent"])
+
         try db2.close()
     }
 }
