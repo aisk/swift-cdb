@@ -3,10 +3,18 @@
 
 import cdbc
 
-struct CDBError: Error, LocalizedError {
+extension cdb_buffer_t {
+    init(length: UInt64, buffer: UnsafePointer<Int8>) {
+        self.init()
+        self.length = length
+        self.buffer = UnsafeMutablePointer(mutating: buffer)
+    }
+}
+
+struct CDBError: Error {
     let errno: Int
 
-    var errorDescription: String? {
+    var localizedDescription: String {
         return "CDB operation failed with error code: \(errno)"
     }
 }
@@ -39,8 +47,8 @@ class CDB {
 
         try key.withCString { cKey in
             try value.withCString { cValue in
-                var keyBuffer = cdb_buffer_t(length: UInt64(key.utf8.count), buffer: UnsafeMutablePointer(mutating: cKey))
-                var valueBuffer = cdb_buffer_t(length: UInt64(value.utf8.count), buffer: UnsafeMutablePointer(mutating: cValue))
+                var keyBuffer = cdb_buffer_t(length: UInt64(key.utf8.count), buffer: cKey)
+                var valueBuffer = cdb_buffer_t(length: UInt64(value.utf8.count), buffer: cValue)
 
                 let res = cdb_add(db, &keyBuffer, &valueBuffer)
                 if res != 0 {
@@ -56,7 +64,7 @@ class CDB {
         }
 
         return try key.withCString { cKey in
-            var keyBuffer = cdb_buffer_t(length: UInt64(key.utf8.count), buffer: UnsafeMutablePointer(mutating: cKey))
+            var keyBuffer = cdb_buffer_t(length: UInt64(key.utf8.count), buffer: cKey)
             var value_info = cdb_file_pos_t(position: 0, length: 0)
 
             let res = cdb_lookup(self.db, &keyBuffer, &value_info, index)
@@ -77,7 +85,7 @@ class CDB {
         }
 
         return try key.withCString { cKey in
-            var keyBuffer = cdb_buffer_t(length: UInt64(key.utf8.count), buffer: UnsafeMutablePointer(mutating: cKey))
+            var keyBuffer = cdb_buffer_t(length: UInt64(key.utf8.count), buffer: cKey)
             var result: UInt64 = 0
 
             let res = cdb_count(self.db, &keyBuffer, &result)
