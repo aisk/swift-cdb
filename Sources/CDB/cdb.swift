@@ -2,6 +2,7 @@
 // https://docs.swift.org/swift-book
 
 import cdbc
+import Foundation
 
 extension cdb_buffer_t {
     init(length: UInt64, buffer: UnsafePointer<Int8>) {
@@ -59,6 +60,25 @@ class CDB {
         }
     }
 
+    func add(key: String, value: Data) throws {
+        guard !isClosed else {
+            throw CDBError(errno: -1, operation: "add")
+        }
+
+        try key.withCString { cKey in
+            let res = value.withUnsafeBytes { valueBytes in
+                var keyBuffer = cdb_buffer_t(length: UInt64(key.utf8.count), buffer: cKey)
+                var valueBuffer = cdb_buffer_t(length: UInt64(value.count), buffer: valueBytes.baseAddress!.assumingMemoryBound(to: Int8.self))
+
+                return cdb_add(db, &keyBuffer, &valueBuffer)
+            }
+
+            if res != 0 {
+                throw CDBError(errno: Int(res), operation: "add")
+            }
+        }
+    }
+
     func get(key: String, at index: UInt64=0) throws -> String? {
         guard !isClosed else {
             throw CDBError(errno: -1, operation: "get")
@@ -76,7 +96,28 @@ class CDB {
                 throw CDBError(errno: Int(res), operation: "lookup")
             }
 
-            return try read(at: value_info)
+            return try readString(at: value_info)
+        }
+    }
+
+    func get(key: String, at index: UInt64=0) throws -> Data? {
+        guard !isClosed else {
+            throw CDBError(errno: -1, operation: "get")
+        }
+
+        return try key.withCString { cKey in
+            var keyBuffer = cdb_buffer_t(length: UInt64(key.utf8.count), buffer: cKey)
+            var value_info = cdb_file_pos_t(position: 0, length: 0)
+
+            let res = cdb_lookup(self.db, &keyBuffer, &value_info, index)
+            if res == 0 {
+                return nil
+            }
+            if res != 1 {
+                throw CDBError(errno: Int(res), operation: "lookup")
+            }
+
+            return try readData(at: value_info)
         }
     }
 
@@ -107,7 +148,7 @@ class CDB {
         isClosed = true
     }
 
-    fileprivate func read(at pos: cdb_file_pos_t) throws -> String {
+    fileprivate func readString(at pos: cdb_file_pos_t) throws -> String {
         guard !isClosed else {
             throw CDBError(errno: -1, operation: "read")
         }
@@ -124,6 +165,28 @@ class CDB {
         }
         buffer[Int(pos.length)] = 0 // Null terminate
         return String(cString: buffer)
+    }
+
+    fileprivate func readData(at pos: cdb_file_pos_t) throws -> Data {
+        guard !isClosed else {
+            throw CDBError(errno: -1, operation: "read")
+        }
+
+        let res = cdb_seek(self.db, pos.position)
+        if res != 0 {
+            throw CDBError(errno: Int(res), operation: "seek")
+        }
+
+        var data = Data(count: Int(pos.length))
+        let read_res = data.withUnsafeMutableBytes { bytes in
+            cdb_read(self.db, bytes.baseAddress?.assumingMemoryBound(to: Int8.self), pos.length)
+        }
+
+        if read_res != 0 {
+            throw CDBError(errno: Int(read_res), operation: "read")
+        }
+
+        return data
     }
 
     deinit {
@@ -190,8 +253,8 @@ private class IteratorHelper {
 
     func append(keyPos: cdb_file_pos_t, valuePos: cdb_file_pos_t) throws {
         guard let cdb = cdb else { return }
-        let key = try cdb.read(at: keyPos)
-        let value = try cdb.read(at: valuePos)
+        let key = try cdb.readString(at: keyPos)
+        let value = try cdb.readString(at: valuePos)
         items.append((key: key, value: value))
     }
 }
