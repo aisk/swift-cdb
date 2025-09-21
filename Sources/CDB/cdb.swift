@@ -46,7 +46,7 @@ class CDB {
         }
     }
 
-    func get(key: String, index: UInt64=0) throws -> String? {
+    func get(key: String, at index: UInt64=0) throws -> String? {
         guard !isClosed else {
             throw CDBError(errno: -1)
         }
