@@ -21,7 +21,7 @@ struct CDBError: Error {
     }
 }
 
-enum Mode: Int32 {
+public enum Mode: Int32 {
     case read = 0
     case write = 1
 }
