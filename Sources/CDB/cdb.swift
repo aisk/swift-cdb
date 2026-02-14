@@ -162,12 +162,16 @@ class CDB {
                 try helper.handle(keyPos: key!.pointee, valuePos: value!.pointee)
                 return 0
             } catch {
-                return -1
+                helper.error = error
+                return 1
             }
         }
 
         let res = cdb_foreach(self.db, callback, helperPtr)
-        if res != 0 {
+        if let error = helper.error {
+            throw error
+        }
+        if res < 0 {
             throw CDBError(errno: Int(res), operation: "forEach")
         }
     }
@@ -286,6 +290,7 @@ private class IteratorHelper {
 private class ForEachHelper {
     private weak var cdb: CDB?
     private let body: (String, String) throws -> Void
+    var error: Error?
 
     init(cdb: CDB, body: @escaping (String, String) throws -> Void) {
         self.cdb = cdb
