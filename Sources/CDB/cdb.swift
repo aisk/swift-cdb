@@ -148,6 +148,30 @@ class CDB {
         isClosed = true
     }
 
+    func forEach(_ body: @escaping (String, String) throws -> Void) throws {
+        guard !isClosed else {
+            throw CDBError(errno: -1, operation: "forEach")
+        }
+
+        let helper = ForEachHelper(cdb: self, body: body)
+        let helperPtr = Unmanaged.passUnretained(helper).toOpaque()
+
+        let callback: cdb_callback = { cdb, key, value, param in
+            let helper = Unmanaged<ForEachHelper>.fromOpaque(param!).takeUnretainedValue()
+            do {
+                try helper.handle(keyPos: key!.pointee, valuePos: value!.pointee)
+                return 0
+            } catch {
+                return -1
+            }
+        }
+
+        let res = cdb_foreach(self.db, callback, helperPtr)
+        if res != 0 {
+            throw CDBError(errno: Int(res), operation: "forEach")
+        }
+    }
+
     fileprivate func readString(at pos: cdb_file_pos_t) throws -> String {
         guard !isClosed else {
             throw CDBError(errno: -1, operation: "read")
@@ -256,5 +280,22 @@ private class IteratorHelper {
         let key = try cdb.readString(at: keyPos)
         let value = try cdb.readString(at: valuePos)
         items.append((key: key, value: value))
+    }
+}
+
+private class ForEachHelper {
+    private weak var cdb: CDB?
+    private let body: (String, String) throws -> Void
+
+    init(cdb: CDB, body: @escaping (String, String) throws -> Void) {
+        self.cdb = cdb
+        self.body = body
+    }
+
+    func handle(keyPos: cdb_file_pos_t, valuePos: cdb_file_pos_t) throws {
+        guard let cdb = cdb else { return }
+        let key = try cdb.readString(at: keyPos)
+        let value = try cdb.readString(at: valuePos)
+        try body(key, value)
     }
 }
