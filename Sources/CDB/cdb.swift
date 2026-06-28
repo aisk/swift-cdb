@@ -252,11 +252,23 @@ extension CDB: Sequence {
                 try helper.append(keyPos: key!.pointee, valuePos: value!.pointee)
                 return 0
             } catch {
-                return -1
+                helper.error = error
+                return 1 // stop iteration; the error is surfaced below
             }
         }
 
-        cdb_foreach(self.db, callback, helperPtr)
+        let res = cdb_foreach(self.db, callback, helperPtr)
+
+        // Sequence.makeIterator() cannot throw, so a read/iteration failure
+        // cannot be propagated as an error here. Rather than silently yielding
+        // a truncated sequence, fail loudly. Callers that need to handle errors
+        // gracefully should use the throwing forEach(_:) instead.
+        if let error = helper.error {
+            preconditionFailure("CDB iteration failed: \(error)")
+        }
+        if res < 0 {
+            preconditionFailure("CDB iteration failed with error code: \(res)")
+        }
 
         return CDBIterator(items: helper.items)
     }
@@ -264,6 +276,7 @@ extension CDB: Sequence {
 
 private class IteratorHelper {
     var items: [(key: String, value: String)] = []
+    var error: Error?
     private weak var cdb: CDB?
 
     init(cdb: CDB) {
