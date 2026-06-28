@@ -12,11 +12,11 @@ extension cdb_buffer_t {
     }
 }
 
-struct CDBError: Error {
-    let errno: Int
-    let operation: String
+public struct CDBError: Error {
+    public let errno: Int
+    public let operation: String
 
-    var localizedDescription: String {
+    public var localizedDescription: String {
         return "CDB \(operation) failed with error code: \(errno)"
     }
 }
@@ -26,23 +26,19 @@ public enum Mode: Int32 {
     case write = 1
 }
 
-class CDB {
+public class CDB {
     private var db: OpaquePointer?
     private var isClosed = false
 
-    init(filename: String, mode: Mode) throws {
+    public init(filename: String, mode: Mode) throws {
         var raw_options = cdb_host_options
-        let ops = withUnsafeMutablePointer(to: &raw_options) {
-            UnsafeMutablePointer($0)
-        }
-
-        let res = cdb_open(&self.db, ops, mode.rawValue, filename)
+        let res = cdb_open(&self.db, &raw_options, mode.rawValue, filename)
         if res != 0 {
             throw CDBError(errno: Int(res), operation: "open")
         }
     }
 
-    func add(key: String, value: String) throws {
+    public func add(key: String, value: String) throws {
         guard !isClosed else {
             throw CDBError(errno: -1, operation: "add")
         }
@@ -60,15 +56,18 @@ class CDB {
         }
     }
 
-    func add(key: String, value: Data) throws {
+    public func add(key: String, value: Data) throws {
         guard !isClosed else {
             throw CDBError(errno: -1, operation: "add")
         }
 
         try key.withCString { cKey in
-            let res = value.withUnsafeBytes { valueBytes in
+            let res = value.withUnsafeBytes { valueBytes -> Int32 in
                 var keyBuffer = cdb_buffer_t(length: UInt64(key.utf8.count), buffer: cKey)
-                var valueBuffer = cdb_buffer_t(length: UInt64(value.count), buffer: valueBytes.baseAddress!.assumingMemoryBound(to: Int8.self))
+                // For an empty Data, baseAddress is nil; pass a non-null dummy
+                // pointer since the C side won't read any bytes when length is 0.
+                let valuePtr = valueBytes.baseAddress?.assumingMemoryBound(to: Int8.self) ?? cKey
+                var valueBuffer = cdb_buffer_t(length: UInt64(value.count), buffer: valuePtr)
 
                 return cdb_add(db, &keyBuffer, &valueBuffer)
             }
@@ -79,7 +78,7 @@ class CDB {
         }
     }
 
-    func get(key: String, at index: UInt64=0) throws -> String? {
+    public func get(key: String, at index: UInt64=0) throws -> String? {
         guard !isClosed else {
             throw CDBError(errno: -1, operation: "get")
         }
@@ -100,7 +99,7 @@ class CDB {
         }
     }
 
-    func get(key: String, at index: UInt64=0) throws -> Data? {
+    public func get(key: String, at index: UInt64=0) throws -> Data? {
         guard !isClosed else {
             throw CDBError(errno: -1, operation: "get")
         }
@@ -121,7 +120,7 @@ class CDB {
         }
     }
 
-    func count(key: String) throws -> UInt64 {
+    public func count(key: String) throws -> UInt64 {
         guard !isClosed else {
             throw CDBError(errno: -1, operation: "count")
         }
@@ -139,7 +138,7 @@ class CDB {
         }
     }
 
-    func close() throws {
+    public func close() throws {
         guard !isClosed else { return }
         let res = cdb_close(db)
         if res != 0 {
@@ -148,7 +147,7 @@ class CDB {
         isClosed = true
     }
 
-    func forEach(_ body: @escaping (String, String) throws -> Void) throws {
+    public func forEach(_ body: @escaping (String, String) throws -> Void) throws {
         guard !isClosed else {
             throw CDBError(errno: -1, operation: "forEach")
         }
@@ -177,22 +176,10 @@ class CDB {
     }
 
     fileprivate func readString(at pos: cdb_file_pos_t) throws -> String {
-        guard !isClosed else {
-            throw CDBError(errno: -1, operation: "read")
-        }
-
-        let res = cdb_seek(self.db, pos.position)
-        if res != 0 {
-            throw CDBError(errno: Int(res), operation: "seek")
-        }
-        let buffer: UnsafeMutablePointer<Int8> = UnsafeMutablePointer<Int8>.allocate(capacity: Int(pos.length) + 1)
-        defer { buffer.deallocate() }
-        let read_res = cdb_read(self.db, buffer, pos.length)
-        if read_res != 0 {
-            throw CDBError(errno: Int(read_res), operation: "read")
-        }
-        buffer[Int(pos.length)] = 0 // Null terminate
-        return String(cString: buffer)
+        // Decode exactly `pos.length` bytes; do NOT rely on a NUL terminator,
+        // otherwise values containing 0x00 would be silently truncated.
+        let data = try readData(at: pos)
+        return String(decoding: data, as: UTF8.self)
     }
 
     fileprivate func readData(at pos: cdb_file_pos_t) throws -> Data {
@@ -205,9 +192,13 @@ class CDB {
             throw CDBError(errno: Int(res), operation: "seek")
         }
 
+        if pos.length == 0 {
+            return Data()
+        }
+
         var data = Data(count: Int(pos.length))
         let read_res = data.withUnsafeMutableBytes { bytes in
-            cdb_read(self.db, bytes.baseAddress?.assumingMemoryBound(to: Int8.self), pos.length)
+            cdb_read(self.db, bytes.baseAddress, pos.length)
         }
 
         if read_res != 0 {
@@ -221,7 +212,7 @@ class CDB {
         try? close()
     }
 
-    subscript(key: String) -> String? {
+    public subscript(key: String) -> String? {
         return try? get(key: key)
     }
 }
