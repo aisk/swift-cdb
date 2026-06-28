@@ -42,6 +42,32 @@ final class CDBTests: XCTestCase {
         try db2.close()
     }
 
+    func testBinaryValueWithNullBytes() throws {
+        let db1 = try CDB(filename: "binary_null_test.cdb", mode: .write)
+        // A value containing an embedded 0x00 must survive round-tripping;
+        // String(cString:) used to truncate it at the first NUL byte.
+        let withNull = Data([0x01, 0x00, 0x02, 0x00, 0x03])
+        try db1.add(key: "withNull", value: withNull)
+        try db1.add(key: "empty", value: Data())
+        try db1.close()
+
+        let db2 = try CDB(filename: "binary_null_test.cdb", mode: .read)
+
+        // Data API: full bytes preserved, not truncated at the first 0x00.
+        let data: Data? = try db2.get(key: "withNull")
+        XCTAssertEqual(data, withNull)
+
+        // String API reads by length too, so length is preserved.
+        let str: String? = try db2.get(key: "withNull")
+        XCTAssertEqual(str?.utf8.count, withNull.count)
+
+        // Empty Data round-trips without crashing on a nil baseAddress.
+        let emptyData: Data? = try db2.get(key: "empty")
+        XCTAssertEqual(emptyData, Data())
+
+        try db2.close()
+    }
+
     func testForEach() throws {
         let db1 = try CDB(filename: "foreach_test.cdb", mode: .write)
         try db1.add(key: "a", value: "1")
